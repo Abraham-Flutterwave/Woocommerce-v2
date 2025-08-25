@@ -228,6 +228,12 @@ class FLW_WC_Payment_Gateway extends WC_Payment_Gateway {
 	public function admin_options() {
 		?>
 		<h3><?php esc_attr_e( 'Flutterwave WooCommerce', 'rave-woocommerce-payment-gateway' ); ?></h3>
+		
+		<?php
+		// Display security status
+		$this->display_security_status();
+		?>
+		
 		<table class="form-table">
 			<tr valign="top">
 				<th scope="row">
@@ -244,6 +250,59 @@ class FLW_WC_Payment_Gateway extends WC_Payment_Gateway {
 			?>
 		</table>
 		<?php
+	}
+
+	/**
+	 * Display security status dashboard
+	 *
+	 * @return void
+	 */
+	private function display_security_status(): void {
+		$security_checks = $this->run_security_checks();
+		?>
+		<div class="flw-security-status" style="background: #f1f1f1; padding: 15px; margin: 15px 0; border-radius: 5px;">
+			<h4><?php esc_html_e( 'Security Status', 'rave-woocommerce-payment-gateway' ); ?></h4>
+			<ul>
+				<?php foreach ( $security_checks as $check => $result ) : ?>
+					<li style="color: <?php echo $result['status'] ? 'green' : 'red'; ?>;">
+						<?php echo $result['status'] ? '✓' : '✗'; ?> <?php echo esc_html( $result['message'] ); ?>
+					</li>
+				<?php endforeach; ?>
+			</ul>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Run security checks
+	 *
+	 * @return array Security check results
+	 */
+	private function run_security_checks(): array {
+		$checks = array();
+
+		// Check if secret hash is default
+		$secret_hash           = $this->get_option( 'secret_hash' );
+		$default_hash          = hash( 'sha256', 'Rave-Secret-Hash' );
+		$checks['secret_hash'] = array(
+			'status'  => $secret_hash !== $default_hash,
+			'message' => $secret_hash !== $default_hash ? 'Secret hash has been changed from default' : 'Secret hash is still default (security risk)',
+		);
+
+		// Check if HTTPS is enabled
+		$checks['https'] = array(
+			'status'  => is_ssl(),
+			'message' => is_ssl() ? 'HTTPS is enabled' : 'HTTPS is not enabled (security risk)',
+		);
+
+		// Check if webhook URL is accessible
+		$webhook_url       = WC()->api_request_url( 'Flw_WC_Payment_Webhook' );
+		$checks['webhook'] = array(
+			'status'  => strpos( $webhook_url, 'https://' ) === 0,
+			'message' => strpos( $webhook_url, 'https://' ) === 0 ? 'Webhook URL uses HTTPS' : 'Webhook URL should use HTTPS',
+		);
+
+		return $checks;
 	}
 
 	/**
@@ -264,10 +323,14 @@ class FLW_WC_Payment_Gateway extends WC_Payment_Gateway {
 				'desc_tip'    => true,
 			),
 			'secret_hash'        => array(
-				'title'       => __( 'Enter Secret Hash', 'rave-woocommerce-payment-gateway' ),
-				'type'        => 'text',
-				'description' => __( 'Please change from default hash and ensure that <b>SECRET HASH</b> is the same with the one on your Flutterwave dashboard', 'rave-woocommerce-payment-gateway' ),
-				'default'     => hash( 'sha256', 'Rave-Secret-Hash' ),
+				'title'             => __( 'Enter Secret Hash', 'rave-woocommerce-payment-gateway' ),
+				'type'              => 'password',
+				'description'       => __( 'Please change from default hash and ensure that <b>SECRET HASH</b> is the same with the one on your Flutterwave dashboard. <br><strong>Security Warning:</strong> Never share this hash publicly.', 'rave-woocommerce-payment-gateway' ),
+				'default'           => hash( 'sha256', 'Rave-Secret-Hash' ),
+				'custom_attributes' => array(
+					'autocomplete'        => 'new-password',
+					'data-security-field' => 'true',
+				),
 			),
 			'title'              => array(
 				'title'       => __( 'Payment method title', 'rave-woocommerce-payment-gateway' ),
@@ -501,7 +564,7 @@ class FLW_WC_Payment_Gateway extends WC_Payment_Gateway {
 
 		$order = wc_get_order( $order_id );
 
-		if ( empty( $nonce_value ) || ! wp_verify_nonce( $nonce_value ) ) {
+		if ( empty( $nonce_value ) || ! wp_verify_nonce( $nonce_value, 'woocommerce-order_pay' ) ) {
 
 			WC()->session->set( 'refresh_totals', true );
 			wc_add_notice( __( 'We were unable to process your order, please try again.', 'rave-woocommerce-payment-gateway' ) );
@@ -598,12 +661,12 @@ class FLW_WC_Payment_Gateway extends WC_Payment_Gateway {
 	public function flw_verify_payment() {
 		$sdk = $this->sdk;
 
-		if ( ! isset( $_GET['_wpnonce'] ) && ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_GET['_wpnonce'] ) ) ) ) {
+		if ( ! isset( $_GET['_wpnonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_GET['_wpnonce'] ) ), 'flutterwave_verify_payment' ) ) {
 			if ( isset( $_GET['status'] ) && 'cancelled' === $_GET['status'] ) {
 				$this->logger->info( 'transaction cancelled by the customer.' );
 				$sdk->set_event_handler( new FlwEventHandler( $order ) )->cancel_payment( $txn_ref );
-				header( 'Location: ' . wc_get_cart_url() );
-				die();
+				wp_safe_redirect( wc_get_cart_url() );
+				exit();
 			}
 		}
 
@@ -616,15 +679,15 @@ class FLW_WC_Payment_Gateway extends WC_Payment_Gateway {
 			if ( isset( $_GET['status'] ) && 'cancelled' === $_GET['status'] ) {
 				$this->logger->info( 'transaction cancelled by the customer.' );
 				$sdk->set_event_handler( new FlwEventHandler( $order ) )->cancel_payment( $txn_ref );
-				header( 'Location: ' . wc_get_cart_url() );
-				die();
+				wp_safe_redirect( wc_get_cart_url() );
+				exit();
 			}
 
 			$sdk->set_event_handler( new FlwEventHandler( $order ) )->requery_transaction( $txn_ref );
 
 			$redirect_url = $this->get_return_url( $order );
-			header( 'Location: ' . $redirect_url );
-			die();
+			wp_safe_redirect( $redirect_url );
+			exit();
 		}
 	}
 
@@ -632,30 +695,76 @@ class FLW_WC_Payment_Gateway extends WC_Payment_Gateway {
 	 * Process Webhook.
 	 */
 	public function flutterwave_webhooks() {
+		// Implement rate limiting
+		if ( ! $this->check_webhook_rate_limit() ) {
+			$this->logger->warning( 'Webhook rate limit exceeded from IP: ' . $this->get_client_ip() );
+			wp_send_json(
+				array(
+					'status'  => 'error',
+					'message' => 'Rate limit exceeded',
+				),
+				WP_Http::TOO_MANY_REQUESTS
+			);
+		}
+
 		$sdk = $this->sdk;
 
 		$event = file_get_contents( 'php://input' );
 
+		// Validate event payload size
+		if ( strlen( $event ) > 10240 ) { // 10KB limit
+			$this->logger->warning( 'Webhook payload too large from IP: ' . $this->get_client_ip() );
+			wp_send_json(
+				array(
+					'status'  => 'error',
+					'message' => 'Payload too large',
+				),
+				WP_Http::BAD_REQUEST
+			);
+		}
+
+		// Validate Content-Type header
+		$content_type = $_SERVER['CONTENT_TYPE'] ?? '';
+		if ( ! str_contains( $content_type, 'application/json' ) ) {
+			$this->logger->warning( 'Invalid Content-Type for webhook from IP: ' . $this->get_client_ip() );
+			wp_send_json(
+				array(
+					'status'  => 'error',
+					'message' => 'Invalid Content-Type',
+				),
+				WP_Http::BAD_REQUEST
+			);
+		}
+
 		if ( ! isset( $_SERVER['HTTP_VERIF_HASH'] ) ) {
-			// redirect to the home page.
-			wp_safe_redirect( home_url() );
-			exit();
+			$this->logger->warning( 'Missing verification hash from IP: ' . $this->get_client_ip() );
+			wp_send_json(
+				array(
+					'status'  => 'error',
+					'message' => 'Missing verification hash',
+				),
+				WP_Http::UNAUTHORIZED
+			);
 		}
 
 		// retrieve the signature sent in the request header's.
 		$signature = ( sanitize_text_field( wp_unslash( $_SERVER['HTTP_VERIF_HASH'] ) ) ?? '' );
 
 		if ( ! $signature ) {
-			$this->logger->info( 'Faudulent Webhook Notification Attempt [Access Redirected]' );
-			// redirect to the home page.
-			wp_safe_redirect( home_url() );
-			exit();
+			$this->logger->info( 'Fraudulent Webhook Notification Attempt [Access Redirected] from IP: ' . $this->get_client_ip() );
+			wp_send_json(
+				array(
+					'status'  => 'error',
+					'message' => 'Invalid verification hash',
+				),
+				WP_Http::UNAUTHORIZED
+			);
 		}
 
 		$local_signature = $this->get_option( 'secret_hash' );
 
-		if ( $signature !== $local_signature ) {
-			$this->logger->info( 'Faudulent Webhook Notification Attempt [Access Restricted]' );
+		if ( ! hash_equals( $signature, $local_signature ) ) {
+			$this->logger->info( 'Fraudulent Webhook Notification Attempt [Access Restricted] from IP: ' . $this->get_client_ip() );
 			wp_send_json(
 				array(
 					'status'  => 'error',
@@ -665,9 +774,26 @@ class FLW_WC_Payment_Gateway extends WC_Payment_Gateway {
 			);
 		}
 
+		// Set security headers
+		header( 'X-Content-Type-Options: nosniff' );
+		header( 'X-Frame-Options: DENY' );
+		header( 'X-XSS-Protection: 1; mode=block' );
+
 		http_response_code( 200 );
-		$this->logger->info( 'Webhook recieved: ' . $event );
+		$this->logger->info( 'Webhook received: ' . substr( $event, 0, 500 ) . '...' ); // Log only first 500 chars for security
 		$event = json_decode( $event );
+
+		// Validate JSON decode
+		if ( json_last_error() !== JSON_ERROR_NONE ) {
+			$this->logger->warning( 'Invalid JSON in webhook payload from IP: ' . $this->get_client_ip() );
+			wp_send_json(
+				array(
+					'status'  => 'error',
+					'message' => 'Invalid JSON payload',
+				),
+				WP_Http::BAD_REQUEST
+			);
+		}
 
 		if ( empty( $event->event ) && empty( $event->data ) ) {
 			wp_send_json(
@@ -696,9 +822,12 @@ class FLW_WC_Payment_Gateway extends WC_Payment_Gateway {
 			$event_type = $event->event;
 			$event_data = $event->data;
 
+			// Add transaction monitoring
+			$this->monitor_transaction( (array) $event_data );
+
 			// check if transaction reference starts with WOOC on hpos enabled.
 			if ( substr( $event_data->tx_ref, 0, 4 ) !== 'WOOC' ) {
-				$this->logger->info( 'Attempt to verifiy a transaction not produced by the merchants store.' );
+				$this->logger->info( 'Attempt to verify a transaction not produced by the merchants store.' );
 				wp_send_json(
 					array(
 						'status'  => 'failed',
@@ -817,6 +946,189 @@ class FLW_WC_Payment_Gateway extends WC_Payment_Gateway {
 
 			}
 		}
+	}
+
+	/**
+	 * Check rate limit for webhook requests
+	 *
+	 * @return bool True if within rate limit, false otherwise
+	 */
+	private function check_webhook_rate_limit(): bool {
+		$client_ip     = $this->get_client_ip();
+		$transient_key = 'flw_webhook_rate_limit_' . md5( $client_ip );
+		$requests      = get_transient( $transient_key );
+
+		// Allow 10 requests per minute per IP
+		if ( $requests && $requests >= 10 ) {
+			return false;
+		}
+
+		$requests = $requests ? $requests + 1 : 1;
+		set_transient( $transient_key, $requests, 60 ); // 60 seconds
+
+		return true;
+	}
+
+	/**
+	 * Get client IP address
+	 *
+	 * @return string Client IP address
+	 */
+	private function get_client_ip(): string {
+		$ip_headers = array(
+			'HTTP_CF_CONNECTING_IP',   // CloudFlare
+			'HTTP_CLIENT_IP',          // Proxy
+			'HTTP_X_FORWARDED_FOR',    // Load Balancer/Proxy
+			'HTTP_X_FORWARDED',        // Proxy
+			'HTTP_X_CLUSTER_CLIENT_IP', // Cluster
+			'HTTP_FORWARDED_FOR',      // Proxy
+			'HTTP_FORWARDED',          // Proxy
+			'REMOTE_ADDR',              // Standard
+		);
+
+		foreach ( $ip_headers as $header ) {
+			if ( ! empty( $_SERVER[ $header ] ) ) {
+				$ips = explode( ',', $_SERVER[ $header ] );
+				$ip  = trim( $ips[0] );
+
+				// Validate IP address
+				if ( filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE ) ) {
+					return $ip;
+				}
+			}
+		}
+
+		return $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+	}
+
+	/**
+	 * Enhanced transaction monitoring
+	 *
+	 * @param array $transaction_data Transaction data
+	 * @return void
+	 */
+	private function monitor_transaction( array $transaction_data ): void {
+		$amount         = $transaction_data['amount'] ?? 0;
+		$currency       = $transaction_data['currency'] ?? '';
+		$customer_email = $transaction_data['customer']['email'] ?? '';
+
+		// Log high-value transactions
+		if ( $amount > 10000 ) {
+			$this->logger->warning(
+				sprintf(
+					'High-value transaction detected: %s %s from %s',
+					$amount,
+					$currency,
+					$customer_email
+				)
+			);
+		}
+
+		// Check for suspicious patterns (example: multiple large transactions from same email)
+		$recent_transactions = get_transient( 'flw_recent_transactions_' . md5( $customer_email ) );
+		if ( ! $recent_transactions ) {
+			$recent_transactions = array();
+		}
+
+		$recent_transactions[] = array(
+			'amount'    => $amount,
+			'timestamp' => time(),
+		);
+
+		// Keep only transactions from last hour
+		$recent_transactions = array_filter(
+			$recent_transactions,
+			function( $tx ) {
+				return $tx['timestamp'] > ( time() - 3600 );
+			}
+		);
+
+		set_transient( 'flw_recent_transactions_' . md5( $customer_email ), $recent_transactions, 3600 );
+
+		// Alert if more than 3 transactions in an hour
+		if ( count( $recent_transactions ) > 3 ) {
+			$this->logger->warning(
+				sprintf(
+					'Multiple transactions detected from email: %s (%d transactions in last hour)',
+					$customer_email,
+					count( $recent_transactions )
+				)
+			);
+		}
+	}
+
+	/**
+	 * Validate and sanitize form field values
+	 *
+	 * @param string $key Field key
+	 * @param string $value Field value
+	 * @return string Sanitized value
+	 */
+	public function validate_text_field( $key, $value ) {
+		$value = sanitize_text_field( wp_unslash( $value ) );
+
+		// Additional validation for specific fields
+		switch ( $key ) {
+			case 'secret_hash':
+				// Validate secret hash format and length
+				if ( strlen( $value ) < 32 ) {
+					WC_Admin_Settings::add_error( __( 'Secret hash must be at least 32 characters long for security.', 'rave-woocommerce-payment-gateway' ) );
+				}
+				// Check if still using default hash
+				$default_hash = hash( 'sha256', 'Rave-Secret-Hash' );
+				if ( $value === $default_hash ) {
+					WC_Admin_Settings::add_error( __( 'Please change the secret hash from the default value for security reasons.', 'rave-woocommerce-payment-gateway' ) );
+				}
+				break;
+
+			case 'title':
+			case 'description':
+				// Sanitize HTML content
+				$value = wp_kses_post( $value );
+				break;
+
+			case 'test_public_key':
+			case 'live_public_key':
+				// Validate public key format
+				if ( ! empty( $value ) && strpos( $value, 'FLWPUBK_' ) !== 0 ) {
+					WC_Admin_Settings::add_error( sprintf( __( 'Invalid public key format for %s. Public keys should start with FLWPUBK_', 'rave-woocommerce-payment-gateway' ), $key ) );
+				}
+				break;
+
+			case 'test_secret_key':
+			case 'live_secret_key':
+				// Validate secret key format
+				if ( ! empty( $value ) && strpos( $value, 'FLWSECK_' ) !== 0 ) {
+					WC_Admin_Settings::add_error( sprintf( __( 'Invalid secret key format for %s. Secret keys should start with FLWSECK_', 'rave-woocommerce-payment-gateway' ), $key ) );
+				}
+				break;
+		}
+
+		return $value;
+	}
+
+	/**
+	 * Enhanced process admin options with additional security checks
+	 *
+	 * @return bool
+	 */
+	public function process_admin_options() {
+		// Verify nonce for admin form submission
+		if ( ! isset( $_POST['_wpnonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['_wpnonce'] ) ), 'woocommerce-settings' ) ) {
+			WC_Admin_Settings::add_error( __( 'Security check failed. Please try again.', 'rave-woocommerce-payment-gateway' ) );
+			return false;
+		}
+
+		// Check user capabilities
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			WC_Admin_Settings::add_error( __( 'You do not have permission to manage these settings.', 'rave-woocommerce-payment-gateway' ) );
+			return false;
+		}
+
+		// Log configuration changes
+		$this->logger->info( 'Flutterwave settings updated by user: ' . wp_get_current_user()->user_login );
+
+		return parent::process_admin_options();
 	}
 }
 
