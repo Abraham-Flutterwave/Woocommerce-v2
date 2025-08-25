@@ -1,4 +1,23 @@
 # Changelog
+## 2.3.7 | 25-08-2025
+Security Enhancements and New Features.
+### Version Changes
+- [SECURITY] Fixed critical nonce verification vulnerabilities (CSRF protection)
+- [SECURITY] Implemented webhook rate limiting (10 requests/minute per IP)
+- [SECURITY] Added timing-safe hash comparison for webhook signatures
+- [SECURITY] Enhanced input validation and sanitization for all form fields
+- [SECURITY] Added security headers to webhook responses
+- [SECURITY] Improved error handling to prevent information disclosure
+- [ADDED] Transaction monitoring with anomaly detection
+- [ADDED] Admin security status dashboard with real-time checks
+- [ADDED] Enhanced logging with security event tracking
+- [ADDED] API key format validation
+- [ADDED] High-value transaction alerting system
+- [FIXED] Logic error in payment verification nonce checks
+- [FIXED] Direct header() usage replaced with wp_safe_redirect()
+- [IMPROVED] Webhook payload validation (size limits, JSON validation)
+- [IMPROVED] Admin form CSRF protection with capability checks
+
 ## 2.3.6 | 01-09-2025
 Bug Fixes and Webhook Handler improvements.
 ### Version Changes

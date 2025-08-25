@@ -3,7 +3,7 @@ Contributors: theflutterwave
 Tags: fintech,flutterwave, woocommerce, payments, nigeria, mastercard, visa, target,Naira,payments,verve,donation,church,shop,store, ghana, kenya, international, mastercard, visa
 Requires at least: 3.1
 Tested up to: 6.7.1
-Stable tag: 2.3.6
+Stable tag: 2.3.7
 License: MIT
 License URI: https://github.com/Flutterwave/Woocommerce/blob/master/LICENSE
 
@@ -67,6 +67,17 @@ Handle Webhooks from Flutterwave with two new actions in WooCommerce.
 2. Always ensure you keep your API keys securely and privately. Do not share with anyone
 3. Ensure you change from the default secret hash on the Wordpress admin and apply same on the Flutterwave Dashboard
 4. Always ensure you install the most recent version of the Flutterwave Wordpress plugin
+5. Enable HTTPS on your website for secure webhook communications
+6. Monitor the security status dashboard regularly for optimal security
+7. Review transaction monitoring alerts for suspicious activity
+
+= Security Features =
+* Enhanced CSRF protection with proper nonce verification
+* Webhook rate limiting to prevent abuse (10 requests per minute per IP)
+* Transaction monitoring with anomaly detection
+* Secure hash comparison using timing-safe functions
+* Comprehensive input validation and sanitization
+* Real-time security status dashboard in admin panel
 
 = Debugging Errors =
 
@@ -96,6 +107,16 @@ By contributing to the Flutterwave WooCommerce, you agree that your contribution
 1. You need to open an account on [Flutterwave for Business](https://dashboard.flutterwave.com)
 
 == Changelog ==
+= 2.3.7 =
+* Security: Fixed critical nonce verification vulnerabilities (CSRF protection)
+* Security: Implemented webhook rate limiting (10 requests/minute per IP)
+* Security: Added timing-safe hash comparison for webhook signatures
+* Security: Enhanced input validation and sanitization for all form fields
+* Added: Transaction monitoring with anomaly detection
+* Added: Admin security status dashboard with real-time checks
+* Added: Enhanced logging with security event tracking
+* Fixed: Logic error in payment verification nonce checks
+* Improved: Webhook payload validation (size limits, JSON validation)
 = 2.3.6 =
 * Fixed: Dynamic Adjustment to Custom Permalink Set by Merchant.
 * Fixed: Redirect Payment option return a Payment Mismatch Error.
